@@ -35,8 +35,8 @@ func main() {
 	registry := registry.NewRegistry(pool)
 	delivery := delivery.NewDelivery(pool)
 	event := event.NewEvent(pool)
-	worker:=worker.NewWorker(pool,delivery)
-	a := api.New(registry, delivery, event)
+	worker := worker.NewWorker(pool, delivery)
+	a := api.New(registry, delivery, event, pool)
 	go worker.Run(ctx)
 
 	log.Println("listening on :8080")

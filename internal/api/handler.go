@@ -47,8 +47,7 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleEvent(w http.ResponseWriter, r *http.Request) {
 	var event model.Event
-	err := json.NewDecoder(r.Body).Decode(&event)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -58,25 +57,49 @@ func (a *API) handleEvent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to get registered apps", http.StatusInternalServerError)
 		return
 	}
-	event.EventId = uuid.New().String()
-	event.CreatedAt = time.Now()
-	err = a.event.InsertEvent(r.Context(), event)
-	if err != nil {
-		http.Error(w, "failed to insert event", http.StatusInternalServerError)
-		return
-	}
 	if len(apps) == 0 {
 		http.Error(w, "no registered apps for this event type", http.StatusNotFound)
 		return
 	}
 
-	go a.delivery.DeliverEvent(event, apps)
-	eventResponse := model.EventResponse{EventId: event.EventId}
-	respBytes, err := json.Marshal(eventResponse)
+	event.EventId = uuid.New().String()
+	event.CreatedAt = time.Now()
+
+	tx, err := a.pool.Begin(r.Context())
 	if err != nil {
-		http.Error(w, "failed to marshal response", http.StatusInternalServerError)
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
 		return
 	}
+	defer tx.Rollback(r.Context()) // no-op if already committed
+
+	if err := a.event.InsertEvent(r.Context(), tx, event); err != nil {
+		http.Error(w, "failed to insert event", http.StatusInternalServerError)
+		return
+	}
+
+	nxtRetry := time.Now()
+	for _, app := range apps {
+		status := model.DeliveryStatus{
+			EventId:       event.EventId,
+			AppId:         app.AppId,
+			State:         "pending",
+			AttemptNumber: 0,
+			NextRetryAt:   &nxtRetry,
+			CreatedAt:     event.CreatedAt,
+		}
+		if err := a.delivery.InsertDeliveryStatus(r.Context(), tx, status); err != nil {
+			http.Error(w, "failed to schedule delivery", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to commit transaction", http.StatusInternalServerError)
+		return
+	}
+
+	eventResponse := model.EventResponse{EventId: event.EventId}
+	respBytes, _ := json.Marshal(eventResponse)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	w.Write(respBytes)

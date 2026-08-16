@@ -8,7 +8,9 @@ import (
 	"math"
 	"net/http"
 	"time"
+	"webhook-delivery/internal/db"
 	"webhook-delivery/internal/model"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -60,7 +62,7 @@ func (d *Delivery) DeliverToApp(ctx context.Context, event model.Event, app mode
 		errMsg := err.Error()
 		deliveryStatus.Error = &errMsg
 		deliveryAttempt.Error = &errMsg
-		if err := d.InsertDeliveryStatus(ctx, deliveryStatus); err != nil {
+		if err := d.InsertDeliveryStatus(ctx, d.pool, deliveryStatus); err != nil {
 			fmt.Println("failed to insert delivery status:", err) // or proper logging
 		}
 		if err := d.InsertDeliveryAttempt(ctx, deliveryAttempt); err != nil {
@@ -90,7 +92,7 @@ func (d *Delivery) DeliverToApp(ctx context.Context, event model.Event, app mode
 			deliveryAttempt.Error = &errMsg
 			deliveryAttempt.ReceivedAt = &rtime
 		}
-		if err := d.InsertDeliveryStatus(ctx, deliveryStatus); err != nil {
+		if err := d.InsertDeliveryStatus(ctx, d.pool, deliveryStatus); err != nil {
 			fmt.Println("failed to insert delivery status:", err) // or proper logging
 		}
 		if err := d.InsertDeliveryAttempt(ctx, deliveryAttempt); err != nil {
@@ -103,7 +105,7 @@ func (d *Delivery) DeliverToApp(ctx context.Context, event model.Event, app mode
 	deliveryStatus.ReceivedAt = &rtime
 	deliveryAttempt.State = "success"
 	deliveryAttempt.ReceivedAt = &rtime
-	if err := d.InsertDeliveryStatus(ctx, deliveryStatus); err != nil {
+	if err := d.InsertDeliveryStatus(ctx, d.pool, deliveryStatus); err != nil {
 		fmt.Println("failed to insert delivery status:", err) // or proper logging
 	}
 	if err := d.InsertDeliveryAttempt(ctx, deliveryAttempt); err != nil {
@@ -156,8 +158,8 @@ func (d *Delivery) GetDeliveryStatus(ctx context.Context, eventId string) ([]mod
 	return results, rows.Err()
 }
 
-func (d *Delivery) InsertDeliveryStatus(ctx context.Context, dstatus model.DeliveryStatus) error {
-	_, err := d.pool.Exec(ctx,
+func (d *Delivery) InsertDeliveryStatus(ctx context.Context, dbtx db.Executor, dstatus model.DeliveryStatus) error {
+	_, err := dbtx.Exec(ctx,
 		`INSERT INTO delivery_status (event_id, app_id, state, error, attempt_count, next_retry_at, sent_at, received_at)
 	 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	 ON CONFLICT (event_id, app_id) DO UPDATE SET

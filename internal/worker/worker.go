@@ -45,7 +45,7 @@ func (w *Worker) processDueRetries(ctx context.Context) {
 		FROM delivery_status ds
 		JOIN events e ON ds.event_id = e.event_id
 		JOIN app_registrations a ON ds.app_id = a.app_id
-		WHERE ds.state = 'retry_later' AND ds.next_retry_at <= now()`)
+		WHERE ds.state in ('retry_later','pending') AND ds.next_retry_at <= now()`)
 	if err != nil {
 		log.Println("failed to query due retries:", err)
 		return
