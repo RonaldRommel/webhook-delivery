@@ -1,0 +1,11 @@
+# docker-compose.yml
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: webhook
+      POSTGRES_PASSWORD: webhook
+      POSTGRES_DB: webhook
+    ports:
+      - "5432:5432"
+# docker exec -it webhook-db-1 psql -U webhook -d webhook
